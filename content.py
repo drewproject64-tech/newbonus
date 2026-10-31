@@ -1,7 +1,7 @@
 """Portuguese (Portugal) text consistent with the bot's actual features."""
 
 BOT_NAME = 'Especialista'
-BOT_USERNAME = 'bonusespecialistabot'
+BOT_USERNAME = 'Bonus_Specialist_Bot'
 SHORT_DESCRIPTION = (
     'Calcula descontos e consulta dicas para avaliar promoções em Portugal. Ferramentas informativas.'
 )

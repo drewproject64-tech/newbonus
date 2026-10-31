@@ -15,7 +15,7 @@ from aiogram.types import (
 from dotenv import load_dotenv
 
 from content import (
-    BOT_NAME, CHECK_QUESTIONS, DESCRIPTION, SHORT_DESCRIPTION, TIPS, WELCOME,
+    BOT_NAME, BOT_USERNAME, CHECK_QUESTIONS, DESCRIPTION, SHORT_DESCRIPTION, TIPS, WELCOME,
 )
 from pricing import calculate_discount, format_eur, parse_eur
 
@@ -251,24 +251,49 @@ async def fallback(message: Message) -> None:
     await message.answer('Escolhe uma das três ferramentas no menu.', reply_markup=menu_keyboard())
 
 
+async def verify_bot_identity(bot: Bot) -> None:
+    """Do not use a token belonging to a different public ad destination."""
+    me = await bot.get_me()
+    actual = me.username or ''
+    if actual.casefold() != BOT_USERNAME.casefold():
+        raise RuntimeError(
+            f'BOT_TOKEN belongs to @{actual}, but this project expects '
+            f'@{BOT_USERNAME}. Verify the bot in @BotFather and the ad URL.'
+        )
+    logger.info('Verified Telegram destination: @%s (id=%s)', actual, me.id)
+
+
 async def configure_profile(bot: Bot) -> None:
-    """Profile info must be consistent with actual bot functions."""
-    actions = [
-        ('nome', bot.set_my_name(name=BOT_NAME)),
-        ('descrição', bot.set_my_description(description=DESCRIPTION)),
-        ('biografia', bot.set_my_short_description(short_description=SHORT_DESCRIPTION)),
-        ('comandos', bot.set_my_commands(commands=[
-            BotCommand(command='start', description='Iniciar o Especialista'),
-            BotCommand(command='menu', description='Ver as três ferramentas'),
-            BotCommand(command='ajuda', description='Como utilizar o bot'),
-            BotCommand(command='cancelar', description='Cancelar a operação'),
-        ])),
-    ]
-    for label, action in actions:
+    """Publish accurate, stable profile text; update only when it differs."""
+    checks = (
+        ('nome', bot.get_my_name, 'name', BOT_NAME, bot.set_my_name),
+        ('descrição', bot.get_my_description, 'description', DESCRIPTION, bot.set_my_description),
+        (
+            'biografia', bot.get_my_short_description, 'short_description',
+            SHORT_DESCRIPTION, bot.set_my_short_description,
+        ),
+    )
+    for label, getter, key, expected, setter in checks:
         try:
-            await action
+            current = await getter()
+            if getattr(current, key) != expected:
+                await setter(**{key: expected})
+                logger.info('Profile field updated for consistency: %s', label)
         except TelegramAPIError as exc:
-            logger.warning('Não foi possível atualizar %s: %s', label, exc)
+            logger.warning('Não foi possível confirmar/atualizar %s: %s', label, exc)
+
+    commands = [
+        BotCommand(command='start', description='Iniciar o Especialista'),
+        BotCommand(command='menu', description='Ver as três ferramentas'),
+        BotCommand(command='ajuda', description='Como utilizar o bot'),
+        BotCommand(command='cancelar', description='Cancelar a operação'),
+    ]
+    try:
+        if await bot.get_my_commands() != commands:
+            await bot.set_my_commands(commands=commands)
+            logger.info('Bot commands updated for consistency')
+    except TelegramAPIError as exc:
+        logger.warning('Não foi possível confirmar/atualizar comandos: %s', exc)
 
 
 async def main() -> None:
@@ -282,6 +307,7 @@ async def main() -> None:
     dispatcher = Dispatcher()
     dispatcher.include_router(router)
     try:
+        await verify_bot_identity(bot)
         await configure_profile(bot)
         await bot.delete_webhook(drop_pending_updates=False)
         logger.info('Especialista iniciado com polling. Usa apenas uma instância ativa.')
